@@ -54,33 +54,11 @@ jobs:
           echo "$SSH_PRIVATE_KEY" > akande_ec2_key.pem
           chmod 600 akande_ec2_key.pem
           
-          # Create .env file with proper permissions
-          ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
-            "echo 'AIRFLOW_UID=1000' > AIRFLOW/.env && \
-             echo 'AIRFLOW_GID=0' >> AIRFLOW/.env && \
-             chmod 600 AIRFLOW/.env"
-          
-          # Create directories with proper ownership
-          ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
-            "mkdir -p AIRFLOW/{dags,logs,plugins,config} && \
-             chown -R 1000:0 AIRFLOW/{dags,logs,plugins,config}"
-          
-          # Copy DAGs and ensure proper ownership
+          # Copy DAGs to EC2
           scp -i akande_ec2_key.pem -o StrictHostKeyChecking=no \
             -r dags/* \
             $EC2_USERNAME@$EC2_HOST:AIRFLOW/dags/
           
+          # Restart Airflow services
           ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
-            "chown -R 1000:0 AIRFLOW/dags/*"
-          
-          # Restart Airflow services with proper permissions
-          ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
-            "cd AIRFLOW && \
-             docker-compose down && \
-             docker-compose up -d"
-          
-          # Verify services are running
-          ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
-            "cd AIRFLOW && \
-             sleep 30 && \
-             docker-compose ps"
+            "cd AIRFLOW && docker-compose restart airflow-webserver airflow-scheduler"
