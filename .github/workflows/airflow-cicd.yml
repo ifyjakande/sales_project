@@ -1,5 +1,6 @@
 name: Airflow CI/CD
 on:
+  workflow_dispatch:  # Enable manual triggering
   push:
     branches: [ main ]
   pull_request:
@@ -99,7 +100,7 @@ jobs:
           # Start or restart Airflow services
           ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
             "cd /home/ubuntu/airflow && docker-compose up -d"
-
+      
       - name: Cleanup
         if: always()
         run: rm -f akande_ec2_key.pem
