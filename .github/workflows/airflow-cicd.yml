@@ -89,8 +89,8 @@ jobs:
           # Copy DAGs to EC2
           scp -i akande_ec2_key.pem -o StrictHostKeyChecking=no \
             -r dags/* \
-            $EC2_USERNAME@$EC2_HOST:airflow/dags/
+            $EC2_USERNAME@$EC2_HOST:/home/ubuntu/airflow/dags/
           
           # Restart Airflow services
           ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
-            "cd airflow && docker-compose restart airflow-webserver airflow-scheduler"
+            "cd /home/ubuntu/airflow && docker-compose restart airflow-webserver airflow-scheduler"
