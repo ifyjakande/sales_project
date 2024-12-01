@@ -87,18 +87,18 @@ jobs:
           echo "$SSH_PRIVATE_KEY" > akande_ec2_key.pem
           chmod 600 akande_ec2_key.pem
           
-          # First, ensure the directory exists
+          # Create directories if they don't exist
           ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
             "mkdir -p /home/ubuntu/airflow/dags"
           
-          # Copy DAGs to EC2 with the correct path
+          # Copy DAGs to EC2
           scp -i akande_ec2_key.pem -o StrictHostKeyChecking=no \
             -r dags/* \
             $EC2_USERNAME@$EC2_HOST:/home/ubuntu/airflow/dags/
           
-          # Restart Airflow services
+          # Start or restart Airflow services
           ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
-            "cd /home/ubuntu/airflow && docker-compose restart airflow-webserver airflow-scheduler"
+            "cd /home/ubuntu/airflow && docker-compose up -d"
 
       - name: Cleanup
         if: always()
