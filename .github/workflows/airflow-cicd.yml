@@ -4,6 +4,7 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -86,7 +87,11 @@ jobs:
           echo "$SSH_PRIVATE_KEY" > akande_ec2_key.pem
           chmod 600 akande_ec2_key.pem
           
-          # Copy DAGs to EC2
+          # First, ensure the directory exists
+          ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
+            "mkdir -p /home/ubuntu/airflow/dags"
+          
+          # Copy DAGs to EC2 with the correct path
           scp -i akande_ec2_key.pem -o StrictHostKeyChecking=no \
             -r dags/* \
             $EC2_USERNAME@$EC2_HOST:/home/ubuntu/airflow/dags/
@@ -94,3 +99,7 @@ jobs:
           # Restart Airflow services
           ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
             "cd /home/ubuntu/airflow && docker-compose restart airflow-webserver airflow-scheduler"
+
+      - name: Cleanup
+        if: always()
+        run: rm -f akande_ec2_key.pem
