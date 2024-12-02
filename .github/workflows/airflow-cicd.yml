@@ -1,4 +1,5 @@
 name: Airflow CI/CD
+
 on:
   workflow_dispatch:
   push:
@@ -7,7 +8,63 @@ on:
     branches: [ main ]
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_USER: airflow
+          POSTGRES_PASSWORD: airflow
+          POSTGRES_DB: airflow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest
+          pip install apache-airflow
+          pip install apache-airflow-providers-apache-kafka
+          pip install apache-airflow-providers-postgres
+          pip install pandas faker
+          pip install -r requirements.txt
+          
+      - name: Initialize Airflow database
+        env:
+          AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+          AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@localhost/airflow
+        run: |
+          export AIRFLOW_HOME=$(pwd)
+          airflow db init
+          airflow users create \
+            --username admin \
+            --firstname admin \
+            --lastname admin \
+            --role Admin \
+            --email admin@example.com \
+            --password admin
+            
+      - name: Run tests
+        env:
+          AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@localhost/airflow
+        run: |
+          pytest tests/
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     
