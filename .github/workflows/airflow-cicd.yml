@@ -1,150 +1,158 @@
 name: Airflow CI/CD
 
 permissions:
-  contents: read
-  actions: read
-  checks: write
+ contents: read
+ actions: read
+ checks: write
 
 on:
-  pull_request:
-    branches:
-      - main
-  push:
-    branches:
-      - main
-  workflow_dispatch:  # Manual trigger
-    inputs:
-      environment:
-        description: 'Environment to run workflow against'
-        required: true
-        default: 'development'
-        type: choice
-        options:
-        - development
-        - main
-      reason:
-        description: 'Reason for manual trigger'
-        required: true
-        type: string
-        default: 'Manual deployment'
+ pull_request:
+   branches:
+     - main
+ push:
+   branches:
+     - main
+ workflow_dispatch:
+   inputs:
+     environment:
+       description: 'Environment to run workflow against'
+       required: true
+       default: 'development'
+       type: choice
+       options:
+       - development
+       - main
+     reason:
+       description: 'Reason for manual trigger'
+       required: true
+       type: string
+       default: 'Manual deployment'
 
 jobs:
-  validate:
-    name: 🧪 Validate and Test
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:13
-        env:
-          POSTGRES_USER: ${{ secrets.DB_USER }}
-          POSTGRES_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          POSTGRES_DB: airflow
-        ports:
-          - 5432:5432
-        options: --health-cmd pg_isready --health-retries 5
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Set up Python
-        uses: actions/setup-python@v3
-        with:
-          python-version: '3.9'
-          
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-          
-      - name: Initialize Airflow database
-        env:
-          AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
-          AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${{ secrets.DB_USER }}:${{ secrets.DB_PASSWORD }}@localhost/airflow
-        run: |
-          export AIRFLOW_HOME=$(pwd)
-          airflow db init
-            
-      - name: Run tests
-        env:
-          AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${{ secrets.DB_USER }}:${{ secrets.DB_PASSWORD }}@localhost/airflow
-        run: |
-          pytest tests/
+ validate:
+   name: 🧪 Validate and Test
+   runs-on: ubuntu-latest
+   services:
+     postgres:
+       image: postgres:13
+       env:
+         POSTGRES_USER: ${{ secrets.DB_USER }}
+         POSTGRES_PASSWORD: ${{ secrets.DB_PASSWORD }}
+         POSTGRES_DB: airflow
+       ports:
+         - 5432:5432
+       options: --health-cmd pg_isready --health-retries 5
+   steps:
+     - uses: actions/checkout@v3
+     
+     - name: Set up Python
+       uses: actions/setup-python@v3
+       with:
+         python-version: '3.9'
+         
+     - name: Install dependencies
+       run: |
+         python -m pip install --upgrade pip
+         python -m pip install -r requirements.txt
+         
+     - name: Initialize Airflow database
+       env:
+         AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+         AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${{ secrets.DB_USER }}:${{ secrets.DB_PASSWORD }}@localhost/airflow
+       run: |
+         export AIRFLOW_HOME=$(pwd)
+         airflow db init
+           
+     - name: Run tests
+       env:
+         AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${{ secrets.DB_USER }}:${{ secrets.DB_PASSWORD }}@localhost/airflow
+       run: |
+         pytest tests/
 
-  check-ec2:
-    name: 🔍 Check EC2 Status
-    needs: validate
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Print Trigger Info
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          echo "Manual trigger reason: ${{ github.event.inputs.reason }}"
-          echo "Selected environment: ${{ github.event.inputs.environment }}"
+ check-ec2:
+   name: 🔍 Check EC2 Status
+   needs: validate
+   if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+   runs-on: ubuntu-latest
+   outputs:
+     instance-status: ${{ steps.check-status.outputs.status }}
+   steps:
+     - name: Print Trigger Info
+       if: github.event_name == 'workflow_dispatch'
+       run: |
+         echo "Manual trigger reason: ${{ github.event.inputs.reason }}"
+         echo "Selected environment: ${{ github.event.inputs.environment }}"
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: eu-north-1
+     - name: Configure AWS credentials
+       uses: aws-actions/configure-aws-credentials@v1
+       with:
+         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+         aws-region: eu-north-1
 
-      - name: Check EC2 status
-        id: check-status
-        run: |
-          STATUS=$(aws ec2 describe-instance-status \
-            --instance-ids ${{ secrets.EC2_INSTANCE_ID }} \
-            --query 'InstanceStatuses[0].InstanceState.Name' \
-            --output text)
-          if [ "$STATUS" = "running" ]; then
-            echo "EC2 instance is running"
-          else
-            echo "EC2 instance is not running"
-            exit 1
-          fi
+     - name: Check EC2 status
+       id: check-status
+       run: |
+         STATUS=$(aws ec2 describe-instance-status \
+           --instance-ids ${{ secrets.EC2_INSTANCE_ID }} \
+           --query 'InstanceStatuses[0].InstanceState.Name' \
+           --output text)
+         echo "status=$STATUS" >> $GITHUB_OUTPUT
+         if [ "$STATUS" = "running" ]; then
+           echo "EC2 instance is running"
+         else
+           echo "EC2 instance is not running"
+           exit 1
+         fi
 
-  deploy:
-    name: 🚀 Deploy to EC2
-    needs: [validate, check-ec2]
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
+ deploy:
+   name: 🚀 Deploy to EC2
+   needs: [validate, check-ec2]
+   if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+   runs-on: ubuntu-latest
+   steps:
+     - uses: actions/checkout@v3
 
-      - name: Deploy to EC2
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USERNAME: ${{ secrets.EC2_USERNAME }}
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-        run: |
-          # Setup SSH configuration
-          mkdir -p /home/runner/.ssh
-          echo "$SSH_PRIVATE_KEY" > /home/runner/.ssh/ec2.key
-          chmod 600 /home/runner/.ssh/ec2.key
-          
-          # Create SSH config
-          echo "Host ec2
-            HostName $EC2_HOST
-            User $EC2_USERNAME
-            IdentityFile /home/runner/.ssh/ec2.key
-            StrictHostKeyChecking no" > /home/runner/.ssh/config
-          
-          # Deploy DAGs and restart services
-          ssh ec2 "mkdir -p /home/$EC2_USERNAME/airflow/dags"
-          scp -r dags/* ec2:/home/$EC2_USERNAME/airflow/dags/
-          
-          ssh ec2 "cd /home/$EC2_USERNAME/airflow && \
-            if command -v docker-compose &> /dev/null; then \
-              docker-compose down && \
-              docker-compose up -d && \
-              docker-compose exec -T airflow-webserver airflow dags unpause all || \
-              echo 'Warning: Failed to unpause DAGs. Please check manually.'; \
-            else \
-              docker compose down && \
-              docker compose up -d && \
-              docker compose exec -T airflow-webserver airflow dags unpause all || \
-              echo 'Warning: Failed to unpause DAGs. Please check manually.'; \
-            fi"
+     - name: Deploy to EC2
+       env:
+         EC2_HOST: ${{ secrets.EC2_HOST }}
+         EC2_USERNAME: ${{ secrets.EC2_USERNAME }}
+         SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+       run: |
+         # Setup SSH with ssh-agent
+         eval $(ssh-agent -s)
+         echo "$SSH_PRIVATE_KEY" | ssh-add -
+         
+         # Setup SSH directory
+         mkdir -p /home/runner/.ssh
+         
+         # Add host key verification
+         ssh-keyscan -H $EC2_HOST >> /home/runner/.ssh/known_hosts
+         
+         # Create minimal SSH config
+         echo "Host ec2
+           HostName $EC2_HOST
+           User $EC2_USERNAME" > /home/runner/.ssh/config
+         
+         # Deploy DAGs and restart services
+         ssh ec2 "mkdir -p /home/$EC2_USERNAME/airflow/dags"
+         scp -r dags/* ec2:/home/$EC2_USERNAME/airflow/dags/
+         
+         ssh ec2 "cd /home/$EC2_USERNAME/airflow && \
+           if command -v docker-compose &> /dev/null; then \
+             docker-compose down && \
+             docker-compose up -d && \
+             docker-compose exec -T airflow-webserver airflow dags unpause all || \
+             echo 'Warning: Failed to unpause DAGs. Please check manually.'; \
+           else \
+             docker compose down && \
+             docker compose up -d && \
+             docker compose exec -T airflow-webserver airflow dags unpause all || \
+             echo 'Warning: Failed to unpause DAGs. Please check manually.'; \
+           fi"
 
-      - name: Cleanup
-        if: always()
-        run: rm -rf /home/runner/.ssh
+     - name: Cleanup
+       if: always()
+       run: |
+         ssh-agent -k  # Kill the ssh-agent
+         rm -rf /home/runner/.ssh
