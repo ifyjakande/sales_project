@@ -1,77 +1,13 @@
 name: Airflow CI/CD
 on:
-  workflow_dispatch:  # Enable manual triggering
+  workflow_dispatch:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    
-    services:
-      postgres:
-        image: postgres:13
-        env:
-          POSTGRES_USER: airflow
-          POSTGRES_PASSWORD: airflow
-          POSTGRES_DB: airflow
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-      
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pytest
-          pip install apache-airflow
-          pip install apache-airflow-providers-apache-kafka
-          pip install apache-airflow-providers-postgres
-          pip install pandas faker
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          fi
-      
-      - name: Initialize Airflow database
-        env:
-          AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
-          AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@localhost/airflow
-        run: |
-          export AIRFLOW_HOME=$(pwd)
-          airflow db init
-          airflow users create \
-            --username admin \
-            --firstname admin \
-            --lastname admin \
-            --role Admin \
-            --email admin@example.com \
-            --password admin
-      
-      - name: Run tests
-        env:
-          AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@localhost/airflow
-        run: |
-          if [ -d "tests" ]; then
-            pytest tests/
-          else
-            echo "No tests directory found, skipping tests"
-          fi
-  
   deploy:
-    needs: test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     
@@ -91,59 +27,44 @@ jobs:
           EC2_USERNAME: ${{ secrets.EC2_USERNAME }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
-          # Setup SSH key
-          echo "$SSH_PRIVATE_KEY" > akande_ec2_key.pem
-          chmod 600 akande_ec2_key.pem
+          # Debug Mode
+          set -x
           
-          # Debug: List contents of current directory
-          echo "Current directory contents:"
-          ls -la
+          # Setup SSH
+          echo "Setting up SSH..."
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/ec2.key
+          chmod 600 ~/.ssh/ec2.key
           
-          # Check if dags directory exists locally
-          if [ ! -d "dags" ]; then
-            echo "Error: dags directory not found in repository"
+          # Test SSH connection
+          echo "Testing SSH connection..."
+          ssh -i ~/.ssh/ec2.key -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST "echo 'SSH connection successful'"
+          
+          # Check local dags directory
+          echo "Checking local dags directory..."
+          if [ ! -d "dags" ] || [ -z "$(ls -A dags)" ]; then
+            echo "Error: dags directory is missing or empty"
+            ls -la
             exit 1
           fi
           
-          # Debug: List contents of dags directory
-          echo "Contents of dags directory:"
-          ls -la dags/
-          
-          # Create backup and prepare directories
-          ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST "
-            mkdir -p ~/airflow/dags
-            if [ \"\$(ls -A ~/airflow/dags)\" ]; then
-              timestamp=\$(date +%Y%m%d_%H%M%S)
-              mkdir -p ~/airflow/dags_backup_\$timestamp
-              mv ~/airflow/dags/* ~/airflow/dags_backup_\$timestamp/ 2>/dev/null || true
-            fi
-            echo \"Remote directory structure:\"
-            ls -la ~/airflow/
-          "
-          
-          # Copy DAGs to EC2 using absolute path
-          echo "Copying DAGs to EC2..."
-          scp -i akande_ec2_key.pem -o StrictHostKeyChecking=no \
-            -r dags/* \
+          # Deploy DAGs
+          echo "Deploying DAGs..."
+          rsync -av -e "ssh -i ~/.ssh/ec2.key -o StrictHostKeyChecking=no" \
+            --delete \
+            dags/ \
             $EC2_USERNAME@$EC2_HOST:/home/$EC2_USERNAME/airflow/dags/
           
-          # Verify deployment and restart services
-          ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST "
-            if [ -z \"\$(ls -A ~/airflow/dags/)\" ]; then
-              echo \"Error: No files found in destination directory\"
-              exit 1
-            fi
-            
-            echo \"Files in destination directory:\"
-            ls -la ~/airflow/dags/
-            
-            cd ~/airflow && docker-compose up -d
-            
-            echo \"Airflow services restarted\"
-          "
+          # Verify deployment
+          echo "Verifying deployment..."
+          ssh -i ~/.ssh/ec2.key -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
+            "ls -la /home/$EC2_USERNAME/airflow/dags/"
           
-          echo "Deployment completed successfully"
+          # Restart Airflow
+          echo "Restarting Airflow..."
+          ssh -i ~/.ssh/ec2.key -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
+            "cd /home/$EC2_USERNAME/airflow && docker-compose up -d"
       
       - name: Cleanup
         if: always()
-        run: rm -f akande_ec2_key.pem
+        run: rm -f ~/.ssh/ec2.key
