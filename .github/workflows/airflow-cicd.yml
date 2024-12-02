@@ -20,11 +20,7 @@ jobs:
           POSTGRES_DB: airflow
         ports:
           - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+        options: --health-cmd pg_isready --health-retries 5
 
     steps:
       - uses: actions/checkout@v3
@@ -34,12 +30,8 @@ jobs:
         
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install pytest
-          pip install apache-airflow
-          pip install apache-airflow-providers-apache-kafka
-          pip install apache-airflow-providers-postgres
-          pip install pandas faker
+          pip install --upgrade pip
+          pip install pytest apache-airflow apache-airflow-providers-apache-kafka apache-airflow-providers-postgres pandas faker
           pip install -r requirements.txt
           
       - name: Initialize Airflow database
@@ -49,13 +41,6 @@ jobs:
         run: |
           export AIRFLOW_HOME=$(pwd)
           airflow db init
-          airflow users create \
-            --username admin \
-            --firstname admin \
-            --lastname admin \
-            --role Admin \
-            --email admin@example.com \
-            --password admin
             
       - name: Run tests
         env:
@@ -84,60 +69,20 @@ jobs:
           EC2_USERNAME: ${{ secrets.EC2_USERNAME }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
-          # Debug Mode
-          set -x
-          
-          # Setup SSH
-          echo "Setting up SSH..." >> $GITHUB_STEP_SUMMARY
           mkdir -p /home/runner/.ssh
           echo "$SSH_PRIVATE_KEY" > /home/runner/.ssh/ec2.key
           chmod 600 /home/runner/.ssh/ec2.key
           
-          # Set up SSH config to avoid command line issues
           echo "Host ec2
             HostName $EC2_HOST
             User $EC2_USERNAME
             IdentityFile /home/runner/.ssh/ec2.key
             StrictHostKeyChecking no" > /home/runner/.ssh/config
           
-          # Test SSH connection
-          echo "Testing SSH connection..." >> $GITHUB_STEP_SUMMARY
-          ssh ec2 "echo 'SSH connection successful'"
-          
-          # Check local dags directory
-          echo "Checking local dags directory..." >> $GITHUB_STEP_SUMMARY
-          if [ ! -d "dags" ] || [ -z "$(ls -A dags)" ]; then
-            echo "Error: dags directory is missing or empty" >> $GITHUB_STEP_SUMMARY
-            ls -la
-            exit 1
-          fi
-          
-          # Prepare remote directory
-          echo "Preparing remote directory..." >> $GITHUB_STEP_SUMMARY
+          # Deploy DAGs and restart services
           ssh ec2 "mkdir -p /home/$EC2_USERNAME/airflow/dags"
-          
-          # Deploy DAGs
-          echo "Deploying DAGs..." >> $GITHUB_STEP_SUMMARY
           scp -r dags/* ec2:/home/$EC2_USERNAME/airflow/dags/
-          
-          # Verify deployment
-          echo "Verifying deployment..." >> $GITHUB_STEP_SUMMARY
-          ssh ec2 "ls -la /home/$EC2_USERNAME/airflow/dags/"
-          
-          # Restart Airflow with proper initialization
-          echo "Restarting Airflow and initializing DAGs..." >> $GITHUB_STEP_SUMMARY
           ssh ec2 "cd /home/$EC2_USERNAME/airflow && \
             docker-compose down && \
             docker-compose up -d && \
-            sleep 30 && \
-            docker-compose exec -T airflow-webserver airflow dags unpause all && \
-            docker-compose exec -T airflow-webserver airflow dags list && \
-            docker-compose exec -T airflow-scheduler airflow dags reserialize"
-          
-          echo "Deployment and DAG initialization completed successfully" >> $GITHUB_STEP_SUMMARY
-
-      - name: Cleanup
-        if: always()
-        run: |
-          rm -f /home/runner/.ssh/ec2.key
-          rm -f /home/runner/.ssh/config
+            docker-compose exec -T airflow-webserver airflow dags unpause all"
