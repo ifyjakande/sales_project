@@ -172,7 +172,7 @@ with DAG(
     'sales_data_generator',
     default_args=default_args,
     description='Generate sales data and push to Kafka and S3 in CSV format',
-    schedule_interval='*/60 * * * *',  # Run every 60 minutes
+    schedule_interval='*/25 * * * *',  # Run every 60 minutes
     catchup=False
 ) as dag:
 
