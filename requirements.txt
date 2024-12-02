@@ -5,6 +5,7 @@ apache-airflow-providers-amazon
 pandas
 faker
 pytest
+psycopg2-binary
 
 
 
