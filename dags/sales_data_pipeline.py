@@ -23,7 +23,9 @@ STATES = ['Constantine', 'New South Wales', 'Budapest', 'Karaman', 'Sikasso', 'A
 COUNTRIES = ['Algeria', 'Australia', 'Hungary', 'Sweden', 'Canada', 'New Zealand', 'Iraq', 
             'Philippines', 'United Kingdom', 'Malaysia', 'United States', 'Japan']
 MARKETS = ['Africa', 'APAC', 'EMEA', 'EU', 'Canada', 'LATAM', 'US']
-REGIONS = ['Africa', 'APAC', 'EMEA', 'EU', 'Canada', 'LATAM', 'US']
+REGIONS = ['Africa', 'Oceania', 'EMEA', 'North', 'Canada', 'Southeast Asia',
+       'Central', 'South', 'Caribbean', 'North Asia', 'East', 'West',
+       'Central Asia']
 CATEGORIES = ['Office Supplies', 'Furniture', 'Technology']
 SUB_CATEGORIES = {
     'Office Supplies': ['Storage', 'Supplies', 'Paper', 'Art', 'Envelopes', 'Fasteners', 'Binders', 'Labels'],
