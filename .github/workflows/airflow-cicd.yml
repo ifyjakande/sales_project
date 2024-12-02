@@ -53,18 +53,18 @@ jobs:
           rsync -av -e "ssh -i ~/.ssh/ec2.key -o StrictHostKeyChecking=no" \
             --delete \
             dags/ \
-            $EC2_USERNAME@$EC2_HOST:/home/$EC2_USERNAME/airflow/dags/
+            "${EC2_USERNAME}@${EC2_HOST}:/home/${EC2_USERNAME}/airflow/dags/"
           
           # Verify deployment
           echo "Verifying deployment..."
           ssh -i ~/.ssh/ec2.key -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
-            "ls -la /home/$EC2_USERNAME/airflow/dags/"
+            "ls -la /home/\$EC2_USERNAME/airflow/dags/"
           
           # Restart Airflow
           echo "Restarting Airflow..."
           ssh -i ~/.ssh/ec2.key -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
-            "cd /home/$EC2_USERNAME/airflow && docker-compose up -d"
-      
+            "cd /home/\$EC2_USERNAME/airflow && docker-compose up -d"
+
       - name: Cleanup
         if: always()
         run: rm -f ~/.ssh/ec2.key
