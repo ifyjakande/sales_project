@@ -67,11 +67,17 @@ jobs:
           echo "Verifying deployment..." >> $GITHUB_STEP_SUMMARY
           ssh ec2 "ls -la /home/$EC2_USERNAME/airflow/dags/"
           
-          # Restart Airflow
-          echo "Restarting Airflow..." >> $GITHUB_STEP_SUMMARY
-          ssh ec2 "cd /home/$EC2_USERNAME/airflow && docker-compose up -d"
+          # Restart Airflow with proper initialization
+          echo "Restarting Airflow and initializing DAGs..." >> $GITHUB_STEP_SUMMARY
+          ssh ec2 "cd /home/$EC2_USERNAME/airflow && \
+            docker-compose down && \
+            docker-compose up -d && \
+            sleep 30 && \
+            docker-compose exec -T airflow-webserver airflow dags unpause all && \
+            docker-compose exec -T airflow-webserver airflow dags list && \
+            docker-compose exec -T airflow-scheduler airflow dags reserialize"
           
-          echo "Deployment completed successfully" >> $GITHUB_STEP_SUMMARY
+          echo "Deployment and DAG initialization completed successfully" >> $GITHUB_STEP_SUMMARY
 
       - name: Cleanup
         if: always()
