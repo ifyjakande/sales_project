@@ -1,5 +1,10 @@
 name: Airflow CI/CD
 
+permissions:
+  contents: read
+  actions: read
+  checks: write
+
 on:
   pull_request:
     branches:
@@ -7,11 +12,12 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
-  # PR validation jobs - run on pull request
   validate:
-    if: github.event_name == 'pull_request'
+    name: 🧪 Validate and Test
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -50,13 +56,12 @@ jobs:
         run: |
           pytest tests/
 
-  # Deployment jobs - run only on push to main (after merge)
-  deploy:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  check-ec2:
+    name: 🔍 Check EC2 Status
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
         with:
@@ -77,6 +82,14 @@ jobs:
             echo "EC2 instance is not running"
             exit 1
           fi
+
+  deploy:
+    name: 🚀 Deploy to EC2
+    needs: [validate, check-ec2]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
 
       - name: Deploy to EC2
         env:
