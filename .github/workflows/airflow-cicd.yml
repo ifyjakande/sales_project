@@ -4,14 +4,51 @@ on:
   push:
     branches: 
       - main
-      - development  
-  pull_request:
+  pull_request_review:
+    types: [submitted]
     branches: 
       - main       
 jobs:
-  test:
+  check-pr-approval:
+    if: github.event.review.state == 'approved'
     runs-on: ubuntu-latest
-    
+    steps:
+      - name: Check PR approval
+        run: |
+          echo "Pull request was approved, proceeding with workflow"
+
+  check-ec2:
+    needs: check-pr-approval
+    runs-on: ubuntu-latest
+    outputs:
+      is-running: ${{ steps.check-status.outputs.status }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-north-1
+
+      - name: Check EC2 status
+        id: check-status
+        run: |
+          STATUS=$(aws ec2 describe-instance-status \
+            --instance-ids ${{ secrets.EC2_INSTANCE_ID }} \
+            --query 'InstanceStatuses[0].InstanceState.Name' \
+            --output text)
+          if [ "$STATUS" = "running" ]; then
+            echo "status=true" >> "$GITHUB_OUTPUT"
+            echo "EC2 instance is running"
+          else
+            echo "status=false" >> "$GITHUB_OUTPUT"
+            echo "EC2 instance is not running"
+            exit 1
+          fi
+
+  test:
+    needs: check-ec2
+    runs-on: ubuntu-latest
     services:
       postgres:
         image: postgres:13
@@ -49,7 +86,7 @@ jobs:
           pytest tests/
 
   deploy:
-    needs: test
+    needs: [check-ec2, test]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'    # Deploy only when changes are in main
     
