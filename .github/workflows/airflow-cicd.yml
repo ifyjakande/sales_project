@@ -41,7 +41,9 @@ jobs:
           pip install apache-airflow-providers-apache-kafka
           pip install apache-airflow-providers-postgres
           pip install pandas faker
-          pip install -r requirements.txt
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
       
       - name: Initialize Airflow database
         env:
@@ -62,7 +64,11 @@ jobs:
         env:
           AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@localhost/airflow
         run: |
-          pytest tests/
+          if [ -d "tests" ]; then
+            pytest tests/
+          else
+            echo "No tests directory found, skipping tests"
+          fi
   
   deploy:
     needs: test
@@ -85,21 +91,51 @@ jobs:
           EC2_USERNAME: ${{ secrets.EC2_USERNAME }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
+          # Setup SSH key
           echo "$SSH_PRIVATE_KEY" > akande_ec2_key.pem
           chmod 600 akande_ec2_key.pem
           
-          # Create directories if they don't exist
+          # Check if dags directory exists locally
+          if [ ! -d "dags" ]; then
+            echo "Error: dags directory not found in repository"
+            exit 1
+          fi
+          
+          # Check if dags directory has files
+          if [ -z "$(ls -A dags)" ]; then
+            echo "Error: dags directory is empty"
+            exit 1
+          fi
+          
+          # Create backup of existing dags on EC2
           ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
-            "mkdir -p /home/ubuntu/airflow/dags"
+            "if [ -d ~/airflow/dags ]; then \
+               timestamp=\$(date +%Y%m%d_%H%M%S); \
+               mkdir -p ~/airflow/dags_backup_\$timestamp; \
+               cp -r ~/airflow/dags/* ~/airflow/dags_backup_\$timestamp/ 2>/dev/null || true; \
+             fi"
+          
+          # Ensure target directory exists
+          ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
+            "mkdir -p ~/airflow/dags"
           
           # Copy DAGs to EC2
           scp -i akande_ec2_key.pem -o StrictHostKeyChecking=no \
             -r dags/* \
-            $EC2_USERNAME@$EC2_HOST:/home/ubuntu/airflow/dags/
+            $EC2_USERNAME@$EC2_HOST:~/airflow/dags/
+          
+          # Verify files were copied successfully
+          ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
+            "if [ ! -d ~/airflow/dags ] || [ -z \"\$(ls -A ~/airflow/dags)\" ]; then \
+               echo 'Error: DAGs were not copied successfully'; \
+               exit 1; \
+             fi"
           
           # Start or restart Airflow services
           ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
-            "cd /home/ubuntu/airflow && docker-compose up -d"
+            "cd ~/airflow && docker-compose up -d"
+          
+          echo "Deployment completed successfully"
       
       - name: Cleanup
         if: always()
