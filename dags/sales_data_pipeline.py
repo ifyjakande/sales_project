@@ -14,7 +14,7 @@ fake = Faker()
 # Constants
 KAFKA_TOPIC = 'sales_data'
 S3_BUCKET = 'project-sales-retail-data'
-AWS_REGION = 'us-north-1'
+AWS_REGION = 'eu-north-1'
 
 # Configuration dictionaries
 SHIP_MODES = ['Standard Class', 'Second Class', 'Same Day', 'First Class']
