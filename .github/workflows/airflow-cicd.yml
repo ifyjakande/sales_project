@@ -109,22 +109,17 @@ jobs:
           echo "Contents of dags directory:"
           ls -la dags/
           
-          # First ensure the remote directory exists and is empty
-          ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST << 'EOF'
-            # Create airflow directory if it doesn't exist
+          # Create backup and prepare directories
+          ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST "
             mkdir -p ~/airflow/dags
-            
-            # Backup existing dags if any exist
-            if [ "$(ls -A ~/airflow/dags)" ]; then
-              timestamp=$(date +%Y%m%d_%H%M%S)
-              mkdir -p ~/airflow/dags_backup_$timestamp
-              mv ~/airflow/dags/* ~/airflow/dags_backup_$timestamp/ 2>/dev/null || true
+            if [ \"\$(ls -A ~/airflow/dags)\" ]; then
+              timestamp=\$(date +%Y%m%d_%H%M%S)
+              mkdir -p ~/airflow/dags_backup_\$timestamp
+              mv ~/airflow/dags/* ~/airflow/dags_backup_\$timestamp/ 2>/dev/null || true
             fi
-            
-            # Debug: Show directory structure
-            echo "Remote directory structure:"
+            echo \"Remote directory structure:\"
             ls -la ~/airflow/
-EOF
+          "
           
           # Copy DAGs to EC2 using absolute path
           echo "Copying DAGs to EC2..."
@@ -133,21 +128,19 @@ EOF
             $EC2_USERNAME@$EC2_HOST:/home/$EC2_USERNAME/airflow/dags/
           
           # Verify deployment and restart services
-          ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST << 'EOF'
-            # Check if files were copied
-            if [ -z "$(ls -A ~/airflow/dags/)" ]; then
-              echo "Error: No files found in destination directory"
+          ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST "
+            if [ -z \"\$(ls -A ~/airflow/dags/)\" ]; then
+              echo \"Error: No files found in destination directory\"
               exit 1
             fi
             
-            echo "Files in destination directory:"
+            echo \"Files in destination directory:\"
             ls -la ~/airflow/dags/
             
-            # Restart Airflow services
             cd ~/airflow && docker-compose up -d
             
-            echo "Airflow services restarted"
-EOF
+            echo \"Airflow services restarted\"
+          "
           
           echo "Deployment completed successfully"
       
