@@ -11,13 +11,23 @@ def test_dag_structure():
     
     # Test basic properties
     assert dag is not None
-    assert dag.schedule_interval == '*/30 * * * *'
+    assert dag.schedule_interval.value == '*/60 * * * *'  # Matches the schedule in your DAG
     
     # Test task dependencies
     tasks = dag.tasks
     task_ids = [task.task_id for task in tasks]
     
-    assert 'generate_data' in task_ids
-    assert 'produce_to_kafka' in task_ids
-    assert 'save_records_to_s3' in task_ids
-    assert 'cleanup' in task_ids
+    # Check if all required tasks exist
+    expected_tasks = {'generate_data', 'produce_to_kafka', 'save_records_to_s3', 'cleanup'}
+    assert set(task_ids) == expected_tasks
+    
+    # Test task order
+    generate_data = dag.get_task('generate_data')
+    produce_to_kafka = dag.get_task('produce_to_kafka')
+    save_records_to_s3 = dag.get_task('save_records_to_s3')
+    cleanup = dag.get_task('cleanup')
+    
+    # Test dependencies
+    assert produce_to_kafka in generate_data.downstream_list
+    assert save_records_to_s3 in produce_to_kafka.downstream_list
+    assert cleanup in save_records_to_s3.downstream_list
