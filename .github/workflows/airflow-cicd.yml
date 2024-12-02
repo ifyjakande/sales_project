@@ -31,7 +31,7 @@ jobs:
           set -x
           
           # Setup SSH
-          echo "Setting up SSH..."
+          echo "Setting up SSH..." >> $GITHUB_STEP_SUMMARY
           mkdir -p /home/runner/.ssh
           echo "$SSH_PRIVATE_KEY" > /home/runner/.ssh/ec2.key
           chmod 600 /home/runner/.ssh/ec2.key
@@ -44,32 +44,34 @@ jobs:
             StrictHostKeyChecking no" > /home/runner/.ssh/config
           
           # Test SSH connection
-          echo "Testing SSH connection..."
+          echo "Testing SSH connection..." >> $GITHUB_STEP_SUMMARY
           ssh ec2 "echo 'SSH connection successful'"
           
           # Check local dags directory
-          echo "Checking local dags directory..."
+          echo "Checking local dags directory..." >> $GITHUB_STEP_SUMMARY
           if [ ! -d "dags" ] || [ -z "$(ls -A dags)" ]; then
-            echo "Error: dags directory is missing or empty"
+            echo "Error: dags directory is missing or empty" >> $GITHUB_STEP_SUMMARY
             ls -la
             exit 1
           fi
           
           # Prepare remote directory
-          echo "Preparing remote directory..."
+          echo "Preparing remote directory..." >> $GITHUB_STEP_SUMMARY
           ssh ec2 "mkdir -p /home/$EC2_USERNAME/airflow/dags"
           
           # Deploy DAGs
-          echo "Deploying DAGs..."
+          echo "Deploying DAGs..." >> $GITHUB_STEP_SUMMARY
           scp -r dags/* ec2:/home/$EC2_USERNAME/airflow/dags/
           
           # Verify deployment
-          echo "Verifying deployment..."
+          echo "Verifying deployment..." >> $GITHUB_STEP_SUMMARY
           ssh ec2 "ls -la /home/$EC2_USERNAME/airflow/dags/"
           
           # Restart Airflow
-          echo "Restarting Airflow..."
+          echo "Restarting Airflow..." >> $GITHUB_STEP_SUMMARY
           ssh ec2 "cd /home/$EC2_USERNAME/airflow && docker-compose up -d"
+          
+          echo "Deployment completed successfully" >> $GITHUB_STEP_SUMMARY
 
       - name: Cleanup
         if: always()
