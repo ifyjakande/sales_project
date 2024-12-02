@@ -1,50 +1,17 @@
 name: Airflow CI/CD
+
 on:
   pull_request:
-    types: [closed]
-    branches: 
-      - main       
+    branches:
+      - main
+  push:
+    branches:
+      - main
 
 jobs:
-  deploy:
-    if: github.event.pull_request.merged == true
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check merge status
-        run: |
-          echo "Pull request was merged, proceeding with deployment"
-
-  check-ec2:
-    needs: deploy
-    runs-on: ubuntu-latest
-    outputs:
-      is-running: ${{ steps.check-status.outputs.status }}
-    steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: eu-north-1
-
-      - name: Check EC2 status
-        id: check-status
-        run: |
-          STATUS=$(aws ec2 describe-instance-status \
-            --instance-ids ${{ secrets.EC2_INSTANCE_ID }} \
-            --query 'InstanceStatuses[0].InstanceState.Name' \
-            --output text)
-          if [ "$STATUS" = "running" ]; then
-            echo "status=true" >> "$GITHUB_OUTPUT"
-            echo "EC2 instance is running"
-          else
-            echo "status=false" >> "$GITHUB_OUTPUT"
-            echo "EC2 instance is not running"
-            exit 1
-          fi
-
-  test:
-    needs: check-ec2
+  # PR validation jobs - run on pull request
+  validate:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -83,19 +50,34 @@ jobs:
         run: |
           pytest tests/
 
-  deploy-to-ec2:
-    needs: [check-ec2, test]
+  # Deployment jobs - run only on push to main (after merge)
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: eu-north-1
-      
+
+      - name: Check EC2 status
+        id: check-status
+        run: |
+          STATUS=$(aws ec2 describe-instance-status \
+            --instance-ids ${{ secrets.EC2_INSTANCE_ID }} \
+            --query 'InstanceStatuses[0].InstanceState.Name' \
+            --output text)
+          if [ "$STATUS" = "running" ]; then
+            echo "EC2 instance is running"
+          else
+            echo "EC2 instance is not running"
+            exit 1
+          fi
+
       - name: Deploy to EC2
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
