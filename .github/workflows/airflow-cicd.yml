@@ -95,45 +95,59 @@ jobs:
           echo "$SSH_PRIVATE_KEY" > akande_ec2_key.pem
           chmod 600 akande_ec2_key.pem
           
+          # Debug: List contents of current directory
+          echo "Current directory contents:"
+          ls -la
+          
           # Check if dags directory exists locally
           if [ ! -d "dags" ]; then
             echo "Error: dags directory not found in repository"
             exit 1
           fi
           
-          # Check if dags directory has files
-          if [ -z "$(ls -A dags)" ]; then
-            echo "Error: dags directory is empty"
-            exit 1
-          fi
+          # Debug: List contents of dags directory
+          echo "Contents of dags directory:"
+          ls -la dags/
           
-          # Create backup of existing dags on EC2
-          ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
-            "if [ -d ~/airflow/dags ]; then \
-               timestamp=\$(date +%Y%m%d_%H%M%S); \
-               mkdir -p ~/airflow/dags_backup_\$timestamp; \
-               cp -r ~/airflow/dags/* ~/airflow/dags_backup_\$timestamp/ 2>/dev/null || true; \
-             fi"
+          # First ensure the remote directory exists and is empty
+          ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST << 'EOF'
+            # Create airflow directory if it doesn't exist
+            mkdir -p ~/airflow/dags
+            
+            # Backup existing dags if any exist
+            if [ "$(ls -A ~/airflow/dags)" ]; then
+              timestamp=$(date +%Y%m%d_%H%M%S)
+              mkdir -p ~/airflow/dags_backup_$timestamp
+              mv ~/airflow/dags/* ~/airflow/dags_backup_$timestamp/ 2>/dev/null || true
+            fi
+            
+            # Debug: Show directory structure
+            echo "Remote directory structure:"
+            ls -la ~/airflow/
+EOF
           
-          # Ensure target directory exists
-          ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
-            "mkdir -p ~/airflow/dags"
-          
-          # Copy DAGs to EC2
+          # Copy DAGs to EC2 using absolute path
+          echo "Copying DAGs to EC2..."
           scp -i akande_ec2_key.pem -o StrictHostKeyChecking=no \
             -r dags/* \
-            $EC2_USERNAME@$EC2_HOST:~/airflow/dags/
+            $EC2_USERNAME@$EC2_HOST:/home/$EC2_USERNAME/airflow/dags/
           
-          # Verify files were copied successfully
-          ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
-            "if [ ! -d ~/airflow/dags ] || [ -z \"\$(ls -A ~/airflow/dags)\" ]; then \
-               echo 'Error: DAGs were not copied successfully'; \
-               exit 1; \
-             fi"
-          
-          # Start or restart Airflow services
-          ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST \
-            "cd ~/airflow && docker-compose up -d"
+          # Verify deployment and restart services
+          ssh -i akande_ec2_key.pem -o StrictHostKeyChecking=no $EC2_USERNAME@$EC2_HOST << 'EOF'
+            # Check if files were copied
+            if [ -z "$(ls -A ~/airflow/dags/)" ]; then
+              echo "Error: No files found in destination directory"
+              exit 1
+            fi
+            
+            echo "Files in destination directory:"
+            ls -la ~/airflow/dags/
+            
+            # Restart Airflow services
+            cd ~/airflow && docker-compose up -d
+            
+            echo "Airflow services restarted"
+EOF
           
           echo "Deployment completed successfully"
       
