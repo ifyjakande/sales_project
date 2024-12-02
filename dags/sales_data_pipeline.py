@@ -86,11 +86,11 @@ def generate_sales_record():
         'year': year
     }
 
-def generate_batch_records(num_records=100):
+def generate_batch_records(num_records=10):
     return [generate_sales_record() for _ in range(num_records)]
 
 def generate_and_save_to_s3(**context):
-    records = generate_batch_records(num_records=100)
+    records = generate_batch_records(num_records=10)
     s3_hook = S3Hook(aws_conn_id='aws_default')
     
     # Get the base client
@@ -172,7 +172,7 @@ with DAG(
     'sales_data_generator',
     default_args=default_args,
     description='Generate sales data and push to Kafka and S3 in CSV format',
-    schedule_interval='*/30 * * * *',  # Run every 5 minutes
+    schedule_interval='*/45 * * * *',  # Run every 5 minutes
     catchup=False
 ) as dag:
 
