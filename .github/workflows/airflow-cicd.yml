@@ -1,21 +1,21 @@
 name: Airflow CI/CD
 on:
-  pull_request_review:
-    types: [submitted]
+  pull_request:
+    types: [closed]
     branches: 
       - main       
 
 jobs:
-  check-pr-approval:
-    if: github.event.review.state == 'approved'
+  deploy:
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
-      - name: Check PR approval
+      - name: Check merge status
         run: |
-          echo "Pull request was approved, proceeding with deployment"
+          echo "Pull request was merged, proceeding with deployment"
 
   check-ec2:
-    needs: check-pr-approval
+    needs: deploy
     runs-on: ubuntu-latest
     outputs:
       is-running: ${{ steps.check-status.outputs.status }}
@@ -83,7 +83,7 @@ jobs:
         run: |
           pytest tests/
 
-  deploy:
+  deploy-to-ec2:
     needs: [check-ec2, test]
     runs-on: ubuntu-latest
     steps:
