@@ -11,7 +11,7 @@ def test_dag_structure():
     
     # Test basic properties
     assert dag is not None
-    assert dag.schedule_interval == '*/90 * * * *'  # Matches the schedule in your DAG
+    assert dag.schedule_interval == '*/70 * * * *'  # Matches the schedule in your DAG
     
     # Test task dependencies
     tasks = dag.tasks
